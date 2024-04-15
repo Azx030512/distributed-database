@@ -1,6 +1,6 @@
 from functions import *
-
-node_data = prepare_node_data()
+master_port = 5000
+node_data = prepare_node_data(master_port)
 
 zk = KazooClient(hosts=zoo_keeper_host)
 zk.start()
@@ -40,6 +40,8 @@ def create_table():
         pprint(requirement_json)
         table_name = requirement_json['table_name']
         estimated_size = requirement_json['estimated_size']
+        global zk
+        global node_data
         allocated_regions, node_data = allocate_region(zk, node_data, table_name, estimated_size)
         solidate_node_data(zk, node_data)
         addresses = regions_address(zk, allocated_regions)
@@ -58,7 +60,7 @@ def create_table():
 
 if __name__ == "__main__":
     try:
-        api.run(debug=False, port=5000, host='127.0.0.1')
+        api.run(debug=False, port=master_port, host='127.0.0.1')
     except:
         input("Type Enter exit.")
     zk.stop()

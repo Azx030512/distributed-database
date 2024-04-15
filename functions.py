@@ -14,7 +14,7 @@ zoo_keeper_host = '127.0.0.1:2181'
 master_node_path = "/master"
 region_node_path = '/region'
 
-def ip_address():
+def ip_address(port=None):
     st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:       
         st.connect(('10.255.255.255', 1))
@@ -23,6 +23,8 @@ def ip_address():
         IP = '127.0.0.1'
     finally:
         st.close()
+    if port:
+        IP = IP + ':' + str(port)
     return IP
 
 def get_node_status(zookeeper, node_path):
@@ -41,25 +43,29 @@ def get_node_address(zookeeper, node_path):
     child_data=None
     if zookeeper.exists(node_path):
         child_data, child_stat = zookeeper.get(node_path)
-    return child_data
+    return child_data.decode('utf-8')
 
 def debug_zookeeper(zookeeper):
-    nodes = zookeeper.get_children('/') 
-    print('nodes',nodes)
+    node_data, _ = zookeeper.get('/master')
+    print('/master')
+    pprint(json.loads(node_data.decode("utf-8")))
+    nodes = zookeeper.get_children('/region') 
+    pprint(nodes)
     for node in nodes:
-        node_data, _ = zookeeper.get(node)
-        print("node data:", node_data.decode("utf-8"))
-        get_node_status(zookeeper, node)
+        node_data, _ = zookeeper.get(os.path.join('/region', node))
+        print(node)
+        pprint(node_data.decode("utf-8"))
 
-def prepare_node_data(json_path="./database_information.json"):
+def prepare_node_data(port, json_path="./database_information.json"):
     with open(json_path, "r") as fp:
         database_information = json.load(fp)
     tables = []
     for region in database_information.keys():
-        tables += database_information[region]['tables']
+        for table in  database_information[region]['tables']:
+            tables.append(table[0])
     tables = list(set(tables))
     node_data = {
-        "ip-address": ip_address(),
+        "ip-address": ip_address(port = port),
         "database_information": database_information,
         "tables": tables
     }
@@ -89,9 +95,9 @@ def allocate_region(zookeeper, node_data, table_name, estimated_size):
     allocated_regions = storage_balance(online_regions, free_spaces)
     for region in allocated_regions:
         node_data['database_information'][region]['free_space'] -= estimated_size
-        node_data['database_information'][region]['tables'].append((table_name,estimated_size))
+        node_data['database_information'][region]['tables'].append(tuple([table_name,estimated_size]))
     if len(allocated_regions)>0:
-        node_data['tables'].add((table_name,estimated_size))
+        node_data['tables'].append((table_name,estimated_size))
     return allocated_regions, node_data
 
 def regions_address(zookeeper, regions: list):
