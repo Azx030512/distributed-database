@@ -1,7 +1,6 @@
 from functions import *
 region_name = "azx"
 
-
 if __name__ == "__main__":
     zk = KazooClient(hosts=zoo_keeper_host)
     zk.start() 
