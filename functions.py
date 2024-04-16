@@ -6,6 +6,7 @@ from flask import make_response
 from flask import request
 from flask import abort
 from pprint import pprint 
+import random
 import time
 import json
 import os
@@ -78,12 +79,18 @@ def solidate_node_data(zookeeper, node_data, json_path="./database_information.j
     return node_data
 
 def storage_balance(online_regions, free_spaces, top_k = 2):
+    # use greedy algorithm to balance storage load
     decrease_index = sorted(range(len(free_spaces)), key=lambda k: free_spaces[k], reverse=True)
     select_index = decrease_index[:top_k]
     select_regions = []
     for index in select_index:
         select_regions.append(online_regions[index])
     return select_regions
+
+def load_balance(addresses):
+    random.seed(time.time())
+    address = random.choice(addresses)
+    return address
 
 def allocate_region(zookeeper, node_data, table_name, estimated_size):
     online_regions = []
@@ -106,3 +113,35 @@ def regions_address(zookeeper, regions: list):
         address = get_node_address(zookeeper, os.path.join(region_node_path, region))
         addresses.append(address)
     return addresses
+
+def table_exists(node_data, table_name):
+    if table_name in node_data['tables']:
+        return True
+    else:
+        return False
+
+def search_tables(node_data, table_name):
+    target_regions = []
+    online_statuses = []
+    for region in node_data['database_information'].keys():
+        table_names = [table[0] for table in node_data['database_information'][region]['tables']]
+        if table_name in table_names:
+            target_regions += [region]
+            online_statuses += [node_data['database_information'][region]['online']]
+    return target_regions, online_statuses
+
+def online_region_filter(regions, online_statuses):
+    online_regions = []
+    for i in range(len(regions)):
+        if online_statuses[i]:
+            online_regions.append(regions[i])
+    return online_regions, len(online_regions)
+
+def unregister_table(node_data, online_regions, table_name):
+    for region in online_regions:
+        for i in range(len(node_data['database_information'][region])):
+            if table_name == node_data['database_information'][region]['tables'][i][0]:
+                node_data['database_information'][region]['tables'].__delitem__(i)
+                node_data['database_information'][region]['free_space'] += node_data['database_information'][region]['tables'][i][1]
+                break
+    return node_data
