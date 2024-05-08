@@ -1,5 +1,6 @@
 from functions import *
 from region_functions import *
+import threading
 
 region_name = input('region name:')
 region_port = int(input('region port:'))
@@ -9,7 +10,7 @@ user = "root"
 password = "jin751120zzw"
 database = "region1"
 
-client_host = ""
+#client_host = ""
 client_port = ""
 
 
@@ -42,7 +43,7 @@ def send_message(host, port, message):
 # 1 -> 操作成功
 # 0 -> 操作失败
 
-def receive_client_massage(received_json_data):
+def receive_client_massage(received_json_data, client_host):
     parsed_data = json.loads(received_json_data)
     print("接收到的JSON数据:", parsed_data)
     #遍历JSON数据，根据键的值进行分类处理
@@ -72,6 +73,20 @@ def receive_client_massage(received_json_data):
             print(f"Unknown type - Key: {key}, Value: {value}")
 
 
+def zxhlll(connection, client_address):
+    # 接收数据
+    data = b""
+    while True:
+        chunk = connection.recv(1024)
+        if not chunk:
+            break
+        data += chunk
+
+    # 解析JSON数据
+    received_json_data = data.decode("utf-8")
+    receive_client_massage(received_json_data, client_address)
+
+
 
 # 监听socket通讯
 
@@ -92,17 +107,12 @@ while True:
     try:
         print("连接已建立：", client_address)
 
-        # 接收数据
-        data = b""
-        while True:
-            chunk = connection.recv(1024)
-            if not chunk:
-                break
-            data += chunk
-
-        # 解析JSON数据
-        received_json_data = data.decode("utf-8")
-        receive_client_massage(received_json_data)
+        # 创建线程
+        thread1 = threading.Thread(target=zxhlll, args=(connection, client_address))
+        # 启动线程
+        thread1.start()
+        # 等待线程执行完成
+        thread1.join()
 
 
     finally:
