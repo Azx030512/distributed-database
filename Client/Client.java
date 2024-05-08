@@ -1,115 +1,137 @@
-import java.io.IOException;
-import java.io.BufferedOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.net.URL;
+import java.io.*;
+import java.net.Socket;
 import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.Scanner;
+import java.util.HashMap;
+import com.google.gson.*;
+import java.net.URI;
 
 public class Client {
+    private static final String MASTER_API = "http://127.0.0.1:5000/api/rounte/";
+    private static final Gson gson = new Gson();
+    private static final HashMap<String, String[]> cache = new HashMap<>();
+
     public static void main(String[] args) {
-        Scanner input = new Scanner(System.in);
-        String zookeeperHost = "127.0.0.1:2181";
-        String tableName = input.next();
+        Scanner scanner = new Scanner(System.in);
+        String command;
+        //  开始显示欢迎信息
+        System.out.println("Welcome to the Java Client Shell!");
+        while (true) {
+            System.out.print("ClientShell> ");
+            command = scanner.nextLine();
 
-        RegionServerInfo regionServerInfo = getRegionServer(zookeeperHost, tableName);
+            if (command.equals("quit")) {
+                break;
+            }
 
-        if(regionServerInfo != null){
-            getRpcFile(regionServerInfo.getIp(), regionServerInfo.getPort(), regionServerInfo.getPath());
+            String[] splitCommand = command.split(" ");
+            String operation = splitCommand[0];
+            String tableName = splitCommand[1];
+
+            switch (operation) {
+                case "create":
+                    String estimatedSize = splitCommand[2];
+                    sendRequestToMaster("create_table", tableName, estimatedSize);
+                    break;
+                case "read":
+                    if (cache.containsKey(tableName)) {
+                        sendJsonToRegionServer("4", tableName, null, cache.get(tableName)[0]);
+                    } else {
+                        sendRequestToMaster("read_table", tableName, null);
+                    }
+                    break;
+                case "write":
+                    String newData = splitCommand[2];
+                    if (cache.containsKey(tableName)) {
+                        for (String address : cache.get(tableName)) {
+                            sendJsonToRegionServer("3", tableName, newData, address);
+                        }
+                    } else {
+                        sendRequestToMaster("write_table", tableName, newData);
+                    }
+                    break;
+                case "drop":
+                    if (cache.containsKey(tableName)) {
+                        for (String address : cache.get(tableName)) {
+                            sendJsonToRegionServer("2", tableName, null, address);
+                        }
+                        cache.remove(tableName);
+                    } else {
+                        sendRequestToMaster("drop_table", tableName, null);
+                    }
+                    break;
+                default:
+                    System.out.println("Unknown command.");
+                    break;
+            }
         }
     }
 
-    public static RegionServerInfo getRegionServer(String zookeeperHost, String tableName){
-        RegionServerInfo regionServerInfo = null;
-
-        try{
-            URL url = new URL("http://" + zookeeperHost + "/get_region_server_ip");
-            String params = "table_name = " + tableName;
-
-            // get Connection with zookeeper
+    private static void sendRequestToMaster(String operation, String tableName, String data) {
+        try {
+            URI uri = new URI(MASTER_API + operation);
+            URL url = uri.toURL();
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("GET");
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
             conn.setDoOutput(true);
-            conn.getOutputStream().write(params.getBytes());
 
-            int responseCode = conn.getResponseCode();
-            if(responseCode == 200){
-                regionServerInfo.setIp(conn.getHeaderField("ip"));
-                regionServerInfo.setPort(conn.getHeaderField("port"));
-                regionServerInfo.setPath(conn.getHeaderField("path"));
-            }else {
-                throw new Exception("Error: Failed to get region server information from Zookeeper.");
+            JsonObject jsonObject = new JsonObject();
+            jsonObject.addProperty("table_name", tableName);
+            if (data != null) {
+                jsonObject.addProperty("estimated_size", data);
             }
 
-        }catch (Exception e){
-            e.printStackTrace();
-        }
+            String jsonInputString = jsonObject.toString();
+            try (OutputStream os = conn.getOutputStream()) {
+                byte[] input = jsonInputString.getBytes("utf-8");
+                os.write(input, 0, input.length);
+            }
 
-        return regionServerInfo;
-    }
-
-    public static void getRpcFile(String ip, String port, String path){
-        try{
-            URL url = new URL("http://" + ip + ":" + port + "/" + path);
-
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("GET");
-
-            int responseCode = conn.getResponseCode();
-            if(responseCode == 200){
-                File file = new File("rpc_file");
-                BufferedOutputStream out = new BufferedOutputStream(new FileOutputStream(file));
-
-                // user while to write file down
-                byte[] buffer = new byte[1024];
-                int bytesRead;
-                while ((bytesRead = conn.getInputStream().read(buffer)) != -1) {
-                    out.write(buffer, 0, bytesRead);
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(conn.getInputStream(), "utf-8"))) {
+                StringBuilder response = new StringBuilder();
+                String responseLine = null;
+                while ((responseLine = br.readLine()) != null) {
+                    response.append(responseLine.trim());
                 }
-
-                out.close();
-            }else {
-                throw new Exception("Error: Failed to get file from RegionServer.");
+                JsonObject responseJson = gson.fromJson(response.toString(), JsonObject.class);
+                if (responseJson.get("signal").getAsString().equals("success")) {
+                    JsonArray addresses = responseJson.get("addresses").getAsJsonArray();
+                    String[] addressArray = new String[addresses.size()];
+                    for (int i = 0; i < addresses.size(); i++) {
+                        addressArray[i] = addresses.get(i).getAsString();
+                        sendJsonToRegionServer(operation, tableName, data, addressArray[i]);
+                    }
+                    cache.put(tableName, addressArray);
+                }
             }
-        }catch (Exception e){
+
+        } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    public class RegionServerInfo {
-        private String ip;
-        private String port;
-        private String path;
+    private static void sendJsonToRegionServer(String operation, String tableName, String data, String address) {
+        try {
+            Socket socket = new Socket(address.split(":")[0], Integer.parseInt(address.split(":")[1]));
+            OutputStream outputStream = socket.getOutputStream();
+            PrintWriter printWriter = new PrintWriter(outputStream, true);
 
-        public RegionServerInfo(String ip, String port, String path){
-            this.ip = ip;
-            this.port = port;
-            this.path = path;
-        }
+            JsonObject jsonObject = new JsonObject();
+            if (data != null) {
+                JsonObject dataObject = new JsonObject();
+                dataObject.addProperty(tableName, data);
+                jsonObject.add(operation, dataObject);
+            } else {
+                jsonObject.addProperty(operation, tableName);
+            }
 
-        public String getIp() {
-            return ip;
-        }
+            printWriter.println(jsonObject.toString());
+            socket.close();
 
-        public void setIp(String ip) {
-            this.ip = ip;
-        }
-
-        public String getPort() {
-            return port;
-        }
-
-        public void setPort(String port) {
-            this.port = port;
-        }
-
-        public String getPath() {
-            return path;
-        }
-
-        public void setPath(String path) {
-            this.path = path;
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
-
 }
