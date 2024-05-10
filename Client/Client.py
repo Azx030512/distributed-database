@@ -48,7 +48,12 @@ class ClientShell(cmd.Cmd):
         if operation != 'CREATE':
             print("Invalid operation. Please use CREATE with create.")
             return
-        json_data_to_master = {"table_name": table_name, "estimated_size": int(estimated_size)}
+        size = int(estimated_size)
+        # 如果size小于0，或不是数字
+        if size <= 0 or not estimated_size.isdigit():
+            print("Invalid estimated size. Please input a positive integer.")
+            return
+        json_data_to_master = {"table_name": table_name, "estimated_size": size}
         response = send_request_to_master(json_data_to_master, 'http://127.0.0.1:5000/api/rounte/create_table')
         if response and response['signal'] == 'success':
             cache[table_name] = response['addresses']
