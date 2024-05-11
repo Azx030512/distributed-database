@@ -88,7 +88,7 @@ rl.on('line', (input) => {
         break;
     case 'read':
       if (args.length != 1) {
-          console.log(args.length)
+          // console.log(args.length)
           console.log('Invalid argument. Usage: read <sql_statement>');
           break;
       }
