@@ -16,17 +16,6 @@ client_port = ""
 
 
 
-if __name__ == "__main__":
-    zk = KazooClient(hosts=zoo_keeper_host)
-    zk.start() 
-    #create ephemeral master node to indicate node state online or not 
-    region_node_path = os.path.join(region_node_path, region_name)
-    print("region_node_path:", region_node_path)
-    zk.create(region_node_path, ip_address(port = region_port).encode("utf-8"), ephemeral=True, makepath=True)
-    input("wait...")
-    zk.stop()
-
-
 #向客户端发送对数据库的操作结果
 def send_message(host, port, message):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -39,9 +28,8 @@ def send_message(host, port, message):
 # 3 -> 改表 
 # 4 -> 查表
 
-
-# 1 -> 操作成功
-# 0 -> 操作失败
+#回复的json格式
+# success：true -> 操作成功/false -> 操作失败   | message：具体的回复消息 |data（对表查询结果才会有）
 
 def receive_client_massage(received_json_data, client_host):
     parsed_data = json.loads(received_json_data)
@@ -73,7 +61,7 @@ def receive_client_massage(received_json_data, client_host):
             print(f"Unknown type - Key: {key}, Value: {value}")
 
 
-def zxhlll(connection, client_address):
+def process(connection, client_address):
     # 接收数据
     data = b""
     while True:
@@ -87,34 +75,52 @@ def zxhlll(connection, client_address):
     receive_client_massage(received_json_data, client_address)
 
 
+if __name__ == "__main__":
+    # zk = KazooClient(hosts=zoo_keeper_host)
+    # zk.start() 
+    # #create ephemeral master node to indicate node state online or not 
+    # region_node_path = os.path.join(region_node_path, region_name)
+    # print("region_node_path:", region_node_path)
+    # zk.create(region_node_path, ip_address(port = region_port).encode("utf-8"), ephemeral=True, makepath=True)
+    # input("wait...")
 
-# 监听socket通讯
+    # 监听socket通讯
+    # 创建一个TCP/IP套接字
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-# 创建一个TCP/IP套接字
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # 绑定套接字到端口
+    server_address = ('127.0.0.1', 12345)  # 这里的端口可以根据需要修改
+    server_socket.bind(server_address)
 
-# 绑定套接字到端口
-server_address = ('127.0.0.1', 12345)  # 这里的端口可以根据需要修改
-server_socket.bind(server_address)
+    #开始监听传入的连接
+    server_socket.listen(1)
 
-# 开始监听传入的连接
-server_socket.listen(1)
+    while True:
+        print("等待连接...")
+        connection, client_address = server_socket.accept()
 
-while True:
-    print("等待连接...")
-    connection, client_address = server_socket.accept()
+        try:
+            print("连接已建立：", client_address)
 
-    try:
-        print("连接已建立：", client_address)
-
-        # 创建线程
-        thread1 = threading.Thread(target=zxhlll, args=(connection, client_address))
-        # 启动线程
-        thread1.start()
-        # 等待线程执行完成
-        thread1.join()
+            # 创建线程
+            thread1 = threading.Thread(target=process, args=(connection, client_address))
+            # 启动线程
+            thread1.start()
+            # 等待线程执行完成
+            thread1.join()
 
 
-    finally:
-        # 关闭连接
-        connection.close()
+        finally:
+            # 关闭连接
+            connection.close()
+
+
+    
+    #zk.stop()
+
+
+
+
+
+
+
