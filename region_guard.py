@@ -17,7 +17,7 @@ database = "region1"
 def send_message(connection, message):
     try:
         result = connection.sendall(message.encode())
-        print(result)
+        # print(result)
     except Exception as e:
         return
 

@@ -139,7 +139,7 @@ def online_region_filter(regions, online_statuses):
 
 def unregister_table(node_data, online_regions, table_name):
     for region in online_regions:
-        for i in range(len(node_data['database_information'][region])):
+        for i in range(len(node_data['database_information'][region]['tables'])):
             if table_name == node_data['database_information'][region]['tables'][i][0]:
                 node_data['database_information'][region]['free_space'] += node_data['database_information'][region]['tables'][i][1]
                 node_data['database_information'][region]['tables'].__delitem__(i)
