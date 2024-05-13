@@ -15,74 +15,103 @@ def send_request_to_master(json_data, url):
         return None
 
 def send_json_to_region_server(json_data, address):
-    # 创建一个TCP/IP套接字
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    # 连接到服务器
     client_socket.connect(address)
-    # 发送数据
     client_socket.sendall(json_data.encode('utf-8'))
-    # 关闭套接字
+    response = client_socket.recv(1024)
     client_socket.close()
+    response_data = json.loads(response.decode('utf-8'))
+    if response_data['success'] == 0:
+        print("Operation failed: " + response_data['message'])
+    elif response_data['success'] == 1:
+        print("Create operation succeeded: " + response_data['message'])
+    elif response_data['success'] == 2:
+        print("Drop operation succeeded: " + response_data['message'])
+    elif response_data['success'] == 3:
+        print("Write operation succeeded: " + response_data['message'])
+    elif response_data['success'] == 4:
+        print("Read operation succeeded: " + response_data['message'])
+        print("Data: " + str(response_data['data']))
 
 class ClientShell(cmd.Cmd):
     prompt = 'ClientShell> '
     intro = "Welcome to the Python Client Shell. Type help or ? to list commands.\n"
 
     def do_create(self, line):
-        args = line.split()
+        args = line.split(maxsplit=1)
         if len(args) != 2:
-            print("Invalid argument. Usage: create <table_name> <estimated_size>")
+            print("Invalid argument. Usage: create <estimated_size> <sql_statement>")
             return
-        table_name = args[0]
-        estimated_size = args[1]
-        json_data = {"table_name": table_name, "estimated_size": estimated_size}
-        response = send_request_to_master(json_data, 'http://127.0.0.1:5000/api/rounte/create_table')
+        estimated_size, sql_statement = args
+        table_name = sql_statement.split()[2]
+        operation = sql_statement.split()[0].upper()
+        if operation != 'CREATE':
+            print("Invalid operation. Please use CREATE with create.")
+            return
+        size = int(estimated_size)
+        # 如果size小于0，或不是数字
+        if size <= 0 or not estimated_size.isdigit():
+            print("Invalid estimated size. Please input a positive integer.")
+            return
+        json_data_to_master = {"table_name": table_name, "estimated_size": size}
+        response = send_request_to_master(json_data_to_master, 'http://127.0.0.1:5000/api/rounte/create_table')
         if response and response['signal'] == 'success':
             cache[table_name] = response['addresses']
+            json_data_to_region = {"1": sql_statement}
             for address in response['addresses']:
-                send_json_to_region_server(json.dumps({"1": table_name}), tuple(address.split(':')))
+                send_json_to_region_server(json.dumps(json_data_to_region), tuple(address.split(':')))
 
     def help_create(self):
-        print('Create a new table. Usage: create <table_name> <estimated_size>')
+        print('Create a new table. Usage: create <estimated_size> <sql_statement>')
 
     def do_read(self, line):
-        args = line.split()
-        if len(args) != 1:
-            print("Invalid argument. Usage: read <table_name>")
+        sql_statement = line
+        if not sql_statement:
+            print("Invalid argument. Usage: read <sql_statement>")
             return
-        table_name = args[0]
+        operation = sql_statement.split()[0].upper()
+        if operation != 'SELECT':
+            print("Invalid operation. Please use SELECT with read.")
+            return
+        table_name = sql_statement.split()[3]
         if table_name in cache:
-            send_json_to_region_server(json.dumps({"4": table_name}), tuple(cache[table_name][0].split(':')))
+            for address in cache[table_name]:
+                send_json_to_region_server(json.dumps({"4": sql_statement}), tuple(address.split(':')))
         else:
             json_data = {"table_name": table_name}
             response = send_request_to_master(json_data, 'http://127.0.0.1:5000/api/rounte/read_table')
             if response and response['signal'] == 'success':
-                cache[table_name] = [response['address']]
-                send_json_to_region_server(json.dumps({"4": table_name}), tuple(response['address'].split(':')))
-
+                cache[table_name] = response['addresses']
+                for address in response['addresses']:
+                    send_json_to_region_server(json.dumps({"4": sql_statement}), tuple(address.split(':')))
+    
     def help_read(self):
-        print('Read a table. Usage: read <table_name>')
+        print('Read from a table. Usage: read <sql_statement>')
 
     def do_write(self, line):
-        args = line.split()
-        if len(args) != 2:
-            print("Invalid argument. Usage: write <table_name> <new_data>")
+        sql_statement = line
+        # print(sql_statement)
+        if not sql_statement:
+            print("Invalid argument. Usage: write <sql_statement>")
             return
-        table_name = args[0]
-        new_data = args[1]
+        operation = sql_statement.split()[0].upper()
+        if operation != 'INSERT' and operation != 'UPDATE' and operation != 'DELETE':
+            print("Invalid operation. Please use INSERT, UPDATE or DELETE with write.")
+            return
+        table_name = sql_statement.split()[2]
         if table_name in cache:
             for address in cache[table_name]:
-                send_json_to_region_server(json.dumps({"3": {table_name: new_data}}), tuple(address.split(':')))
+                send_json_to_region_server(json.dumps({"3": sql_statement}), tuple(address.split(':')))
         else:
             json_data = {"table_name": table_name}
             response = send_request_to_master(json_data, 'http://127.0.0.1:5000/api/rounte/write_table')
             if response and response['signal'] == 'success':
                 cache[table_name] = response['addresses']
                 for address in response['addresses']:
-                    send_json_to_region_server(json.dumps({"3": {table_name: new_data}}), tuple(address.split(':')))
+                    send_json_to_region_server(json.dumps({"3": sql_statement}), tuple(address.split(':')))
 
     def help_write(self):
-        print('Write to a table. Usage: write <table_name> <new_data>')
+        print('Write to a table. Usage: write <sql_statement>')
 
     def do_drop(self, line):
         args = line.split()
@@ -95,8 +124,9 @@ class ClientShell(cmd.Cmd):
         if response and response['signal'] == 'success':
             if table_name in cache:
                 del cache[table_name]
+            sql_statement = "DROP TABLE " + table_name
             for address in response['addresses']:
-                send_json_to_region_server(json.dumps({"2": table_name}), tuple(address.split(':')))
+                send_json_to_region_server(json.dumps({"2": sql_statement}), tuple(address.split(':')))
 
     def help_drop(self):
         print('Drop a table. Usage: drop <table_name>')
