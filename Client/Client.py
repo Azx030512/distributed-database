@@ -16,7 +16,9 @@ def send_request_to_master(json_data, url):
 
 def send_json_to_region_server(json_data, address):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client_socket.connect(address)
+    if type(address[1]) is not int:
+        address[1] = int(address[1])
+    client_socket.connect(tuple(address))
     client_socket.sendall(json_data.encode('utf-8'))
     response = client_socket.recv(1024)
     client_socket.close()
@@ -59,7 +61,7 @@ class ClientShell(cmd.Cmd):
             cache[table_name] = response['addresses']
             json_data_to_region = {"1": sql_statement}
             for address in response['addresses']:
-                send_json_to_region_server(json.dumps(json_data_to_region), tuple(address.split(':')))
+                send_json_to_region_server(json.dumps(json_data_to_region), list(address.split(':')))
 
     def help_create(self):
         print('Create a new table. Usage: create <estimated_size> <sql_statement>')
