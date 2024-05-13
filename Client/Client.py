@@ -3,6 +3,8 @@ import cmd
 import socket
 import json
 
+master_ip = input()
+master_port = int(input())
 # 定义一个简单的内存缓存
 cache = {}
 
@@ -56,7 +58,7 @@ class ClientShell(cmd.Cmd):
             print("Invalid estimated size. Please input a positive integer.")
             return
         json_data_to_master = {"table_name": table_name, "estimated_size": size}
-        response = send_request_to_master(json_data_to_master, 'http://127.0.0.1:5000/api/rounte/create_table')
+        response = send_request_to_master(json_data_to_master, f'http://{master_ip}:{master_port}/api/rounte/create_table')
         if response and response['signal'] == 'success':
             cache[table_name] = response['addresses']
             json_data_to_region = {"1": sql_statement}
@@ -81,7 +83,7 @@ class ClientShell(cmd.Cmd):
                 send_json_to_region_server(json.dumps({"4": sql_statement}), tuple(address.split(':')))
         else:
             json_data = {"table_name": table_name}
-            response = send_request_to_master(json_data, 'http://127.0.0.1:5000/api/rounte/read_table')
+            response = send_request_to_master(json_data, f'http://{master_ip}:{master_port}/api/rounte/read_table')
             if response and response['signal'] == 'success':
                 cache[table_name] = response['addresses']
                 for address in response['addresses']:
@@ -106,7 +108,7 @@ class ClientShell(cmd.Cmd):
                 send_json_to_region_server(json.dumps({"3": sql_statement}), tuple(address.split(':')))
         else:
             json_data = {"table_name": table_name}
-            response = send_request_to_master(json_data, 'http://127.0.0.1:5000/api/rounte/write_table')
+            response = send_request_to_master(json_data, f'http://{master_ip}:{master_port}/api/rounte/write_table')
             if response and response['signal'] == 'success':
                 cache[table_name] = response['addresses']
                 for address in response['addresses']:
@@ -122,7 +124,7 @@ class ClientShell(cmd.Cmd):
             return
         table_name = args[0]
         json_data = {"table_name": table_name}
-        response = send_request_to_master(json_data, 'http://127.0.0.1:5000/api/rounte/drop_table')
+        response = send_request_to_master(json_data, f'http://{master_ip}:{master_port}/api/rounte/drop_table')
         if response and response['signal'] == 'success':
             if table_name in cache:
                 del cache[table_name]
