@@ -2,9 +2,13 @@ import requests
 import cmd
 import socket
 import json
+import random
 
-master_ip = input()
-master_port = int(input())
+# master_ip = input()
+# master_port = int(input())
+master_ip = "10.192.40.86"
+master_port = 5000
+
 # 定义一个简单的内存缓存
 cache = {}
 
@@ -20,21 +24,37 @@ def send_json_to_region_server(json_data, address):
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     if type(address[1]) is not int:
         address[1] = int(address[1])
-    client_socket.connect(tuple(address))
+    try:
+        client_socket.connect(tuple(address))
+    except ConnectionRefusedError:
+        print("Error: Connection refused by Region Server.")
+        return
     client_socket.sendall(json_data.encode('utf-8'))
-    response = client_socket.recv(1024)
+    # 接收服务器返回的数据,超过10秒没有返回数据则超时
+    # client_socket.settimeout(10)
+    try:
+        response = client_socket.recv(1024)
+    except socket.timeout:
+        print("Error: Timeout when connecting to Region Server.")
+        return
     client_socket.close()
+    # 如果没有收到数据，就返回
+    if not response:
+        print("Error: Failed to connect to Region Server: No response.")
+        return
     response_data = json.loads(response.decode('utf-8'))
+    address = address[0] + ':' + str(address[1])
     if response_data['success'] == 0:
-        print("Operation failed: " + response_data['message'])
+        print(f"Operation failed on {address} : " + response_data['message'])
+        return
     elif response_data['success'] == 1:
-        print("Create operation succeeded: " + response_data['message'])
+        print("Create operation succeeded on " + str(address) + " : " + response_data['message'])
     elif response_data['success'] == 2:
-        print("Drop operation succeeded: " + response_data['message'])
+        print("Drop operation succeeded on " + str(address) + " : " + response_data['message'])
     elif response_data['success'] == 3:
-        print("Write operation succeeded: " + response_data['message'])
+        print("Write operation succeeded on " + str(address) + " : " + response_data['message'])
     elif response_data['success'] == 4:
-        print("Read operation succeeded: " + response_data['message'])
+        print("Read operation succeeded on " + str(address) + " : " + response_data['message'])
         print("Data: " + str(response_data['data']))
 
 class ClientShell(cmd.Cmd):
@@ -61,9 +81,13 @@ class ClientShell(cmd.Cmd):
         response = send_request_to_master(json_data_to_master, f'http://{master_ip}:{master_port}/api/rounte/create_table')
         if response and response['signal'] == 'success':
             cache[table_name] = response['addresses']
+            # 打印cache更新的部分
+            print(f"cache updated. add new table to cache: {table_name} -> {response['addresses']}")
             json_data_to_region = {"1": sql_statement}
             for address in response['addresses']:
                 send_json_to_region_server(json.dumps(json_data_to_region), list(address.split(':')))
+        else:
+            print(f"Error: Failed to create table. {response['message']}")
 
     def help_create(self):
         print('Create a new table. Usage: create <estimated_size> <sql_statement>')
@@ -79,15 +103,18 @@ class ClientShell(cmd.Cmd):
             return
         table_name = sql_statement.split()[3]
         if table_name in cache:
-            for address in cache[table_name]:
-                send_json_to_region_server(json.dumps({"4": sql_statement}), tuple(address.split(':')))
+            address = random.choice(cache[table_name])
+            print(f"read from {address} from cache")
+            send_json_to_region_server(json.dumps({"4": sql_statement}), list(address.split(':')))
         else:
             json_data = {"table_name": table_name}
             response = send_request_to_master(json_data, f'http://{master_ip}:{master_port}/api/rounte/read_table')
             if response and response['signal'] == 'success':
-                cache[table_name] = response['addresses']
-                for address in response['addresses']:
-                    send_json_to_region_server(json.dumps({"4": sql_statement}), tuple(address.split(':')))
+                # cache[table_name] = response['address']
+                address = response['address']
+                send_json_to_region_server(json.dumps({"4": sql_statement}), list(address.split(':')))
+            else:
+                print(f"Error: Failed to read from table: {response['message']}")
     
     def help_read(self):
         print('Read from a table. Usage: read <sql_statement>')
@@ -102,17 +129,24 @@ class ClientShell(cmd.Cmd):
         if operation != 'INSERT' and operation != 'UPDATE' and operation != 'DELETE':
             print("Invalid operation. Please use INSERT, UPDATE or DELETE with write.")
             return
-        table_name = sql_statement.split()[2]
+        if operation == 'UPDATE':
+            table_name = sql_statement.split()[1]
+        else:
+            table_name = sql_statement.split()[2]
         if table_name in cache:
             for address in cache[table_name]:
-                send_json_to_region_server(json.dumps({"3": sql_statement}), tuple(address.split(':')))
+                print(f"write to {address} from cache")
+                send_json_to_region_server(json.dumps({"3": sql_statement}), list(address.split(':')))
         else:
             json_data = {"table_name": table_name}
             response = send_request_to_master(json_data, f'http://{master_ip}:{master_port}/api/rounte/write_table')
             if response and response['signal'] == 'success':
                 cache[table_name] = response['addresses']
+                print(f"cache updated. add new table to cache: {table_name} -> {response['addresses']}")
                 for address in response['addresses']:
-                    send_json_to_region_server(json.dumps({"3": sql_statement}), tuple(address.split(':')))
+                    send_json_to_region_server(json.dumps({"3": sql_statement}), list(address.split(':')))
+            else:
+                print(f"Error: Failed to write to table: {response['message']}")
 
     def help_write(self):
         print('Write to a table. Usage: write <sql_statement>')
@@ -128,9 +162,12 @@ class ClientShell(cmd.Cmd):
         if response and response['signal'] == 'success':
             if table_name in cache:
                 del cache[table_name]
+                print(f"cache updated. delete table from cache: {table_name} -> {response['addresses']}")
             sql_statement = "DROP TABLE " + table_name
             for address in response['addresses']:
-                send_json_to_region_server(json.dumps({"2": sql_statement}), tuple(address.split(':')))
+                send_json_to_region_server(json.dumps({"2": sql_statement}), list(address.split(':')))
+        else:
+            print(f"Error: Failed to drop table: {response['message']}")
 
     def help_drop(self):
         print('Drop a table. Usage: drop <table_name>')
