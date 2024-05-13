@@ -34,9 +34,10 @@ def create_region_table(host, user, password, database, create_table_query):
         print("Error:", err)
         response["message"] = f"Error: {err}"
 
-    finally:
-        # 关闭连接
-        connection.close()
+    # finally:
+    #     # 关闭连接
+    #     if connection is not None:
+    #         connection.close()
 
     # 将response转换为JSON格式的字符串
     response_json = json.dumps(response)
@@ -160,7 +161,7 @@ def query_region_table(host, user, password, database, query):
                     row_data[column_name] = row[column_name]
                 response["data"].append(row_data)
 
-        response["success"] = 1
+        response["success"] = 4
 
     except pymysql.Error as err:
         print("Error:", err)

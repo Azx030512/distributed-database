@@ -104,7 +104,7 @@ def allocate_region(zookeeper, node_data, table_name, estimated_size):
         node_data['database_information'][region]['free_space'] -= estimated_size
         node_data['database_information'][region]['tables'].append(tuple([table_name,estimated_size]))
     if len(allocated_regions)>0:
-        node_data['tables'].append((table_name,estimated_size))
+        node_data['tables'].append(table_name)
     return allocated_regions, node_data
 
 def regions_address(zookeeper, regions: list):
@@ -141,7 +141,7 @@ def unregister_table(node_data, online_regions, table_name):
     for region in online_regions:
         for i in range(len(node_data['database_information'][region])):
             if table_name == node_data['database_information'][region]['tables'][i][0]:
-                node_data['database_information'][region]['tables'].__delitem__(i)
                 node_data['database_information'][region]['free_space'] += node_data['database_information'][region]['tables'][i][1]
+                node_data['database_information'][region]['tables'].__delitem__(i)
                 break
     return node_data

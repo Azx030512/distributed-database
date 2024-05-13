@@ -195,7 +195,7 @@ def drop_table():
 
 if __name__ == "__main__":
     try:
-        api.run(debug=False, port=master_port, host='127.0.0.1')
+        api.run(debug=False, port=master_port, host=ip_address())
     except:
         input("Type Enter exit.")
     zk.stop()
