@@ -11,7 +11,7 @@ import time
 import json
 import os
 
-zoo_keeper_host = '127.0.0.1:2181'
+zoo_keeper_host = '10.192.40.86:2181'
 master_node_path = "/master"
 region_node_path = '/region'
 
